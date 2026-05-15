@@ -8,7 +8,7 @@ from langchain_community.document_loaders import TextLoader
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings, HuggingFacePipeline # 正确方式：从独立包导入
-from langchain_core.vectorstores import InMemoryVectorStore
+from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
@@ -24,8 +24,8 @@ docs = loader.load()
 
 # 文本分块（更新方法为 create_documents）
 text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=1000,
-    chunk_overlap=200,
+    chunk_size=500,
+    chunk_overlap=100,
     length_function=len,
     is_separator_regex=False,
 )
@@ -34,12 +34,11 @@ chunks = text_splitter.split_documents(docs)
 # 向量化与存储
 embeddings = HuggingFaceEmbeddings(
     model_name="./models/Qwen3-Embedding-4B",
-    model_kwargs={'device': 'cpu'},
+    model_kwargs={'device': 'cpu'},  # 使用 CPU，显存不足使用 GPU 会导致结果出错
     encode_kwargs={'normalize_embeddings': True}
 )
 
-vectorstore = InMemoryVectorStore(embeddings)
-vectorstore.add_documents(chunks)
+vectorstore = FAISS.from_documents(chunks, embeddings)
 
 
 # --- 3. 准备生成模型 (使用 HuggingFacePipeline 包装) ---
@@ -47,7 +46,7 @@ model_name_or_path = "./models/Qwen3.5-4B"
 tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
 model = AutoModelForCausalLM.from_pretrained(
     model_name_or_path,
-    device_map="cpu",
+    device_map="cpu",  # 使用 CPU，显存不足使用 GPU 会导致结果出错
     torch_dtype=torch.float32
 )
 
@@ -56,9 +55,9 @@ pipe = pipeline(
     "text-generation",
     model=model,
     tokenizer=tokenizer,
-    max_new_tokens=2048,
-    do_sample=True,
-    temperature=0.7,
+    max_new_tokens=512,
+    do_sample=False,
+    temperature=0.1,
     return_full_text=False  # 只返回新生成的文本，不包含输入
 )
 
@@ -90,8 +89,20 @@ rag_chain = (
     | StrOutputParser()
 )
 
-# --- 5. 提问与获取答案 ---
-question = "文中举了哪些例子？"
-answer = rag_chain.invoke(question)
+def get_answer(query):
+    return rag_chain.invoke(query)
 
-print(f"答案: {answer.strip()}")
+
+if __name__ == "__main__":
+    question = "文中举了哪些例子？"
+    answer = get_answer(question)
+    print(f"答案: {answer.strip()}")
+
+    from benchmark import Benchmark
+
+    benchmark_data = [
+        {"question": "文中举了哪些例子？", "answer": ""},
+    ]
+
+    bm = Benchmark(get_answer)
+    bm.run(benchmark_data)
