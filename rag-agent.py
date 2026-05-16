@@ -94,14 +94,14 @@ def get_answer(query):
 
 
 if __name__ == "__main__":
-    question = "厦门大学四年制本科最长学习年限是几年？"
+    question = "文中举了哪些例子？"
     answer = get_answer(question)
     print(f"答案: {answer.strip()}")
 
     from benchmark import Benchmark
 
     benchmark_data = [
-        {"question": "厦门大学四年制本科最长学习年限是几年？", "answer": "四年制本科最长学习年限不超过6年。"},
+        {"question": "文中举了哪些例子？", "answer": ""},
     ]
 
     bm = Benchmark(get_answer)
