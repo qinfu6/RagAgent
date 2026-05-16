@@ -1,5 +1,8 @@
 import os
+import re
 import torch
+from pathlib import Path
+import requests
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 
 # md loader
@@ -13,14 +16,19 @@ from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 
+from benchmark import Benchmark
 
-markdown_path = "./doc/2/2025年学业指南.md"
+# --- 1. 多数据源加载：扫描指定文件夹下所有 .md 文件 ---
+def load_markdown_files(data_dir):
+    all_docs = []
+    for filepath in sorted(Path(data_dir).rglob("*.md")):
+        loader = TextLoader(str(filepath), encoding='utf-8')
+        all_docs.extend(loader.load())
+    return all_docs
 
-# 加载文档
-# loader = UnstructuredMarkdownLoader(markdown_path)
-# docs = loader.load()
-loader = TextLoader(markdown_path, encoding='utf-8')
-docs = loader.load()
+data_dir = "./doc/3"
+docs = load_markdown_files(data_dir)
+print(f"已加载 {len(docs)} 个文档")
 
 # 文本分块（更新方法为 create_documents）
 text_splitter = RecursiveCharacterTextSplitter(
@@ -78,31 +86,71 @@ template = """请根据下面提供的上下文信息来回答问题。
 回答:"""
 prompt = ChatPromptTemplate.from_template(template)
 
+# --- 决策层提示词：判断上下文能否回答问题 ---
+decision_template = """你的任务是判断给定的上下文是否能够回答用户的问题。
+如果上下文包含回答问题所需的信息，返回 1。
+如果上下文不包含相关信息，返回 0。
+只返回 0 或 1，不要返回任何其他内容。
+
+上下文: {context}
+
+问题: {question}
+
+判断:"""
+decision_prompt = ChatPromptTemplate.from_template(decision_template)
+
 # 将检索步骤集成到链中
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
-rag_chain = (
-    {"context": vectorstore.as_retriever() | format_docs, "question": RunnablePassthrough()}
-    | prompt
-    | llm
-    | StrOutputParser()
-)
+retriever = vectorstore.as_retriever()
+
+def check_context_relevance(context, question):
+    if not context.strip():
+        return False
+    chain = decision_prompt | llm | StrOutputParser()
+    result = chain.invoke({"context": context, "question": question})
+    return "1" in result.strip()
+
+def web_search(query, max_results=5):
+    try:
+        resp = requests.get(
+            "https://api.duckduckgo.com/",
+            params={"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
+            timeout=10
+        )
+        data = resp.json()
+        parts = []
+        if data.get("AbstractText"):
+            parts.append(data["AbstractText"])
+        for topic in data.get("RelatedTopics", []):
+            if isinstance(topic, dict) and topic.get("Text"):
+                parts.append(topic["Text"])
+                if len(parts) >= max_results:
+                    break
+        if parts:
+            return "\n\n".join(parts)
+    except Exception:
+        pass
+    return ""
 
 def get_answer(query):
-    return rag_chain.invoke(query)
+    docs = retriever.invoke(query)
+    local_context = format_docs(docs)
+
+    if check_context_relevance(local_context, query):
+        answer_context = local_context
+    else:
+        web_context = web_search(query)
+        if web_context:
+            answer_context = web_context
+        else:
+            answer_context = local_context
+
+    chain = prompt | llm | StrOutputParser()
+    return chain.invoke({"context": answer_context, "question": query}).strip()
 
 
 if __name__ == "__main__":
-    question = "文中举了哪些例子？"
-    answer = get_answer(question)
-    print(f"答案: {answer.strip()}")
-
-    from benchmark import Benchmark
-
-    benchmark_data = [
-        {"question": "文中举了哪些例子？", "answer": ""},
-    ]
-
     bm = Benchmark(get_answer)
-    bm.run(benchmark_data)
+    bm.run()

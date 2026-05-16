@@ -1,0 +1,247 @@
+{
+  "accuracy": 0.8666666666666667,
+  "correct": 26,
+  "total": 30,
+  "results": [
+    {
+      "id": "001",
+      "label": "1",
+      "question": "厦门大学学生在留校察看处分未解除前能否获得毕业资格？",
+      "reference_answer": "留校察看处分未解除前不能获得毕业资格。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n不能。",
+      "user_score": 1
+    },
+    {
+      "id": "002",
+      "label": "1",
+      "question": "厦门大学本科生最长学习年限从哪一天开始计算？",
+      "reference_answer": "最长学习年限从入学年份起算，包含休学和保留学籍时长。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 0
+    },
+    {
+      "id": "003",
+      "label": "1",
+      "question": "厦门大学本科生休学创业最长年限是几年？",
+      "reference_answer": "休学创业四年制最长不超过8年。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 0
+    },
+    {
+      "id": "004",
+      "label": "1",
+      "question": "厦门大学辅修学位需要达到多少学分？",
+      "reference_answer": "辅修学士学位总学分不低于45学分。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n总学分不低于45学分。",
+      "user_score": 1
+    },
+    {
+      "id": "005",
+      "label": "1",
+      "question": "厦门大学本科生推免英语六级最低线是多少？",
+      "reference_answer": "推免英语六级需≥425分。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n425分",
+      "user_score": 1
+    },
+    {
+      "id": "006",
+      "label": "1",
+      "question": "厦门大学结业后多久内可重修换毕业证？",
+      "reference_answer": "结业后一年内可申请自费重修，合格者可换发毕业证书。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 0
+    },
+    {
+      "id": "007",
+      "label": "1",
+      "question": "厦门大学推免生重修成绩按多少分计入GPA？",
+      "reference_answer": "推免排名时重修通过按60分计入GPA。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n60分（百分制）",
+      "user_score": 1
+    },
+    {
+      "id": "008",
+      "label": "1",
+      "question": "厦门大学本科生游泳必修学分是多少？",
+      "reference_answer": "游泳必修学分为1学分。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n1 学分。",
+      "user_score": 1
+    },
+    {
+      "id": "009",
+      "label": "1",
+      "question": "厦门大学本科生毕业体测最低合格线是多少分？",
+      "reference_answer": "毕业时体测达不到50分按结业或肄业处理。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n50分",
+      "user_score": 1
+    },
+    {
+      "id": "010",
+      "label": "1",
+      "question": "厦门大学本科生缺课多少学时不能参加期末考？",
+      "reference_answer": "缺课累计达课程总学时1/3者不得参加期末考核。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 0
+    },
+    {
+      "id": "011",
+      "label": "1",
+      "question": "厦门大学本科生免听课程GPA最低要求是多少？",
+      "reference_answer": "免听需入学以来所有课程GPA≥3.3。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n3.3",
+      "user_score": 1
+    },
+    {
+      "id": "012",
+      "label": "1",
+      "question": "厦门大学缓考成绩是否计入GPA？",
+      "reference_answer": "缓考成绩以「缓考/DF」记录，不参与GPA计算。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n不计入绩点计算。",
+      "user_score": 1
+    },
+    {
+      "id": "013",
+      "label": "1",
+      "question": "厦门大学本科生创新学分必修要求是多少？",
+      "reference_answer": "创新学分为必修2学分。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n每位学生应满足《创新实践》2学分修读要求。",
+      "user_score": 1
+    },
+    {
+      "id": "014",
+      "label": "1",
+      "question": "厦门大学补考成绩是否计入GPA？",
+      "reference_answer": "补考合格成绩按实际分数计入GPA。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n是的，根据上下文，不合格课程成绩如实显示在成绩单上，同一门课程，每一次修读获得的成绩均纳入加权学分绩点计算。",
+      "user_score": 1
+    },
+    {
+      "id": "015",
+      "label": "1",
+      "question": "厦门大学本科生重修课程能否申请免听？",
+      "reference_answer": "重修课程不允许申请免听。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n不能。根据上下文，重修课程不能申请“免听”。",
+      "user_score": 1
+    },
+    {
+      "id": "016",
+      "label": "2",
+      "question": "厦门大学宿舍养宠物扣多少分？",
+      "reference_answer": "学校无相关扣分规定。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 1
+    },
+    {
+      "id": "017",
+      "label": "2",
+      "question": "厦门大学旷课一次扣几分？",
+      "reference_answer": "学校无旷课扣分具体数值规定。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 1
+    },
+    {
+      "id": "018",
+      "label": "2",
+      "question": "厦门大学早操缺勤会影响奖学金吗？",
+      "reference_answer": "学校无相关影响规定。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 1
+    },
+    {
+      "id": "019",
+      "label": "2",
+      "question": "厦门大学挂科不能入党吗？",
+      "reference_answer": "学校无相关限制规定。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 1
+    },
+    {
+      "id": "020",
+      "label": "2",
+      "question": "厦门大学奖学金必须过普通话二甲吗？",
+      "reference_answer": "奖学金评选无普通话要求。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 1
+    },
+    {
+      "id": "021",
+      "label": "2",
+      "question": "厦门大学本科生实习必须签三方吗？",
+      "reference_answer": "学校无实习必须签三方的规定。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 1
+    },
+    {
+      "id": "022",
+      "label": "2",
+      "question": "厦门大学本科生必须跑早操才能毕业吗？",
+      "reference_answer": "学校无早操毕业硬性要求。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 1
+    },
+    {
+      "id": "023",
+      "label": "2",
+      "question": "厦门大学挂科超过3门会退学吗？",
+      "reference_answer": "学校无挂科数量退学规定。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 1
+    },
+    {
+      "id": "024",
+      "label": "2",
+      "question": "厦门大学辅修必须和主修同院吗？",
+      "reference_answer": "学校无同院限制。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 1
+    },
+    {
+      "id": "025",
+      "label": "2",
+      "question": "厦门大学可以同时修两个辅修吗？",
+      "reference_answer": "学校无明确禁止也无允许条款。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 1
+    },
+    {
+      "id": "026",
+      "label": "2",
+      "question": "厦门大学旷课三次自动退学吗？",
+      "reference_answer": "学校无旷课三次退学规定。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 1
+    },
+    {
+      "id": "027",
+      "label": "2",
+      "question": "厦门大学补考必须缴费吗？",
+      "reference_answer": "学校无补考收费规定。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 1
+    },
+    {
+      "id": "028",
+      "label": "2",
+      "question": "厦门大学提前毕业必须满两年吗？",
+      "reference_answer": "学校仅允许提前一年，无两年提前毕业规定。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 1
+    },
+    {
+      "id": "029",
+      "label": "2",
+      "question": "厦门大学休学最多能休几年？",
+      "reference_answer": "学校规定休学累计不超过2年，不存在3年上限。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 1
+    },
+    {
+      "id": "030",
+      "label": "2",
+      "question": "厦门大学重修费多少钱一门？",
+      "reference_answer": "学校无重修收费标准。",
+      "llm_answer": "Assistant: <think>\n\n</think>\n\n抱歉，我无法根据提供的上下文找到相关信息来回答此问题。",
+      "user_score": 1
+    }
+  ]
+}

@@ -13,6 +13,7 @@ from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 
+from benchmark import Benchmark
 
 markdown_path = "./doc/2/2025年学业指南.md"
 
@@ -55,7 +56,7 @@ pipe = pipeline(
     "text-generation",
     model=model,
     tokenizer=tokenizer,
-    max_new_tokens=512,
+    max_new_tokens=256,
     do_sample=False,
     temperature=0.1,
     return_full_text=False  # 只返回新生成的文本，不包含输入
@@ -69,6 +70,7 @@ llm = HuggingFacePipeline(pipeline=pipe)
 template = """请根据下面提供的上下文信息来回答问题。
 请确保你的回答完全基于这些上下文。
 如果上下文中没有足够的信息来回答问题，请直接告知："抱歉，我无法根据提供的上下文找到相关信息来回答此问题。"
+请直接给出答案，不需要解释推导过程。
 
 上下文:
 {context}
@@ -80,7 +82,12 @@ prompt = ChatPromptTemplate.from_template(template)
 
 # 将检索步骤集成到链中
 def format_docs(docs):
-    return "\n\n".join(doc.page_content for doc in docs)
+    context_str = "\n\n".join(doc.page_content for doc in docs)
+    # 打印检索到的上下文
+    print("======== 检索到的上下文 ========")
+    print(context_str)
+    print("================================\n")
+    return context_str
 
 rag_chain = (
     {"context": vectorstore.as_retriever() | format_docs, "question": RunnablePassthrough()}
@@ -94,15 +101,5 @@ def get_answer(query):
 
 
 if __name__ == "__main__":
-    question = "厦门大学四年制本科最长学习年限是几年？"
-    answer = get_answer(question)
-    print(f"答案: {answer.strip()}")
-
-    from benchmark import Benchmark
-
-    benchmark_data = [
-        {"question": "厦门大学四年制本科最长学习年限是几年？", "answer": "四年制本科最长学习年限不超过6年。"},
-    ]
-
     bm = Benchmark(get_answer)
-    bm.run(benchmark_data)
+    bm.run()
