@@ -11,24 +11,24 @@ OPENAI_API_KEY = "sk-b93f045d7963409ba614d956d02a9269"
 OPENAI_BASE_URL = "https://api.deepseek.com"
 SCORING_MODEL = "deepseek-v4-flash"
 
-S1 = """类别一： S1 预训练记忆干扰（30%）。
+S1 = """类别一： S1 预训练记忆干扰。
 1. 答案中的数字、期限、专有名词与知识库原文完全一致。
 2. 答案不包含知识库之外的事实性信息。
 3. 答案提供可验证的证据引用。
 """
 S2 = """
-类别二： S2 无中生有（30%）。
+类别二： S2 无中生有。
 1. 当知识库中不存在相关依据时，模型能够明确拒答。
 2. 答案中不包含任何猜测、臆断或常识性补充。
 3. 不得以建议性表述替代拒答结论。
 """
 S3 = """
-类别三： S3 忠实度错误（25%）
+类别三： S3 忠实度错误。
 1. 答案完整保留原文中的限制条件、适用前提和例外情形。
 2. 答案不得改变原文的约束强度和语义方向，例如不得将“可以”改写为“必须”，或将“不得”改写为“原则上不建议”。
 """
 S4 = """
-类别四： S4 多跳推理错误（15%）。
+类别四： S4 多跳推理错误。
 1. 答案所依据的证据链完整，无关键证据缺失。
 2. 答案能够清晰呈现跨条款、跨条件之间的推理桥接关系。
 3. 不得仅凭局部证据直接给出最终结论。
@@ -108,7 +108,8 @@ class Benchmark:
             print(f"\n[{i+1}/{total}] 类别 {label}: {question}")
             print(f"正确答案: {ref}")
 
-            llm_answer = self.get_answer(question).strip()
+            llm_answer, rag_context = self.get_answer(question)
+            llm_answer = llm_answer.strip()
             print(f"LLM回答: {llm_answer}")
 
             results.append({
@@ -117,6 +118,7 @@ class Benchmark:
                 "question": question,
                 "reference_answer": ref,
                 "llm_answer": llm_answer,
+                "rag_context": rag_context,
                 "user_score": None
             })
 
@@ -129,7 +131,7 @@ class Benchmark:
             print(f"\n[{i+1}/{total}] 类别:{r['label']} | ID:{r['id']}")
             score = self._ai_score(
                 r["question"], r["reference_answer"],
-                r["llm_answer"], r["label"]
+                r["llm_answer"], r["rag_context"], r["label"]
             )
             r["user_score"] = score
             print(f"问题: {r['question']}")
@@ -137,12 +139,15 @@ class Benchmark:
             print(f"LLM回答: {r['llm_answer']}")
             print(f"AI评分: {'正确' if score == 1 else '错误'}")
 
-    def _ai_score(self, question, reference_answer, llm_answer, label):
+    def _ai_score(self, question, reference_answer, llm_answer, context, label):
         criteria = SCORING_CRITERIA.get(label, "")
         prompt = f"""请根据以下评分标准判断LLM回答是否正确。
 
 评分标准：
 {criteria}
+
+RAG检索到的上下文：
+{context}
 
 问题：{question}
 正确答案：{reference_answer}
