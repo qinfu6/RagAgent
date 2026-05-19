@@ -9,3 +9,4 @@ langchain-huggingface>=0.1.0
 unstructured>=0.15.0
 sentence-transformers
 faiss-cpu
+openai
