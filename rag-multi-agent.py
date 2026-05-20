@@ -98,15 +98,43 @@ class BaseAgent:
         text = re.sub(r'^\s*Assistant:\s*', '', text)
         return text.strip()
 
+    @staticmethod
+    def _to_chat_messages(langchain_messages):
+        role_map = {"system": "system", "human": "user", "ai": "assistant"}
+        return [{"role": role_map.get(msg.type, msg.type), "content": msg.content} for msg in langchain_messages]
+
+    def invoke_llm(self, messages):
+        if messages and isinstance(messages[0], dict):
+            dict_messages = messages
+        else:
+            dict_messages = self._to_chat_messages(messages)
+        prompt_text = self.pipe.tokenizer.apply_chat_template(
+            dict_messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False
+        )
+        raw = self.llm.invoke(prompt_text)
+        return self.clean_answer(raw)
+
 
 # ==================== RetrieverAgent ====================
 class RetrieverAgent:
-    def __init__(self, vectorstore, k=3):
+    def __init__(self, vectorstore, k=3, fetch_k=10, lambda_mult=0.6):
         self.vectorstore = vectorstore
         self.k = k
+        self.fetch_k = fetch_k          # 候选池大小
+        self.lambda_mult = lambda_mult  # 多样性控制
 
     def search(self, query):
-        docs = self.vectorstore.similarity_search(query, k=self.k)
+        # docs = self.vectorstore.similarity_search(query, k=self.k)
+        # 使用 MMR 检索，返回既相关又多样的文档
+        docs = self.vectorstore.max_marginal_relevance_search(
+            query,
+            k=self.k,
+            fetch_k=self.fetch_k,
+            lambda_mult=self.lambda_mult
+        )
         context = "\n\n".join(doc.page_content for doc in docs)
         print("======== 检索到的上下文 ========")
         print(context)
@@ -132,40 +160,68 @@ class DecisionAgent(BaseAgent):
     def check(self, context, question):
         if not context.strip():
             return False
-        chain = self.prompt | self.llm | StrOutputParser()
-        result = chain.invoke({"context": context, "question": question})
-        result = self.clean_answer(result)
+        messages = self.prompt.format_messages(context=context, question=question)
+        result = self.invoke_llm(messages)
         print(f"[DecisionAgent]: {result.strip()}")
         return "1" in result.strip()
 
 
-# ==================== ReformulatorAgent ====================
-class ReformulatorAgent(BaseAgent):
+# ==================== ReformulatorAgent (已弃用, 保留供参考) ====================
+# class ReformulatorAgent(BaseAgent):
+#     def __init__(self, model, tokenizer):
+#         super().__init__(model, tokenizer, max_new_tokens=64, temperature=0.3, do_sample=True)
+#         self.prompt = ChatPromptTemplate.from_template("""你是一个搜索查询优化助手。
+# 请根据原始问题，提取核心关键词或改写为更适合在文档库中检索的表述。
+# 只返回优化后的检索词，不要返回任何其他内容。
+#
+# 原始问题: {question}
+#
+# 优化检索词:""")
+#
+#     def rewrite(self, question):
+#         messages = self.prompt.format_messages(question=question)
+#         result = self.invoke_llm(messages)
+#         rewritten = result.strip()
+#         print(f"[ReformulatorAgent]: {rewritten}")
+#         return rewritten
+
+
+def expand_query_with_pseudo_doc(original_query, pseudo_doc, max_length=400):
+    expanded = f"{original_query} {pseudo_doc}"
+    if len(expanded) > max_length:
+        expanded = expanded[:max_length]
+    return expanded
+
+
+# ==================== Query2docAgent ====================
+class Query2docAgent(BaseAgent):
     def __init__(self, model, tokenizer):
-        super().__init__(model, tokenizer, max_new_tokens=64, temperature=0.3, do_sample=True)
-        self.prompt = ChatPromptTemplate.from_template("""你是一个搜索查询优化助手。
-请根据原始问题，提取核心关键词或改写为更适合在文档库中检索的表述。
-只返回优化后的检索词，不要返回任何其他内容。
+        super().__init__(model, tokenizer, max_new_tokens=256, temperature=0.3, do_sample=True)
+        self.few_shot_prompt = """请根据问题生成一段可能包含答案和相关背景信息的文字。这段文字应该像一篇真实文档的片段，引入丰富的术语和事实，以帮助搜索引擎更好地匹配。
+只返回生成的文档片段，不要包含其他内容。
 
-原始问题: {question}
+示例1:
+问题: 学校对于旷课的处理规定是什么？
+文档片段: 根据学生手册第三十条，学生一学期内旷课累计达到10学时者，给予警告处分；达到20学时者，给予严重警告处分；达到30学时者，给予记过处分；达到40学时者，给予留校察看处分；达到50学时或以上者，给予开除学籍处分。旷课时间按实际授课时间计算，迟到、早退三次按旷课一学时计算。
 
-优化检索词:""")
+示例2:
+问题: 奖学金的评定标准有哪些？
+文档片段: 奖学金评定主要依据学生的学业成绩、综合素质测评和思想品德表现。学业成绩要求本学年必修课无不及格科目，且平均学分绩点排名在专业前30%。综合素质测评包括科技创新、社会实践、文体活动等附加分。思想品德要求遵守校纪校规，无处分记录。具体等次和金额详见手册第15页。
 
-    def rewrite(self, question):
-        chain = self.prompt | self.llm | StrOutputParser()
-        result = chain.invoke({"question": question})
-        result = self.clean_answer(result)
-        rewritten = result.strip()
-        print(f"[ReformulatorAgent]: {rewritten}")
-        return rewritten
+现在，请根据以下问题生成文档片段：
+问题: {question}
+文档片段:"""
+
+    def generate(self, question):
+        messages = [{"role": "user", "content": self.few_shot_prompt.format(question=question)}]
+        return self.invoke_llm(messages)
 
 
 # ==================== AnswerAgent ====================
 class AnswerAgent(BaseAgent):
     def __init__(self, model, tokenizer):
         super().__init__(model, tokenizer, max_new_tokens=512, temperature=0.1, do_sample=False)
-        self.prompt = ChatPromptTemplate.from_messages([
-            ("system", """你是一个严格基于《学生手册》知识库的问答助手。你必须遵守以下铁律：
+        self.system_prompt = """你是一个严格基于《学生手册》知识库的问答助手。你必须遵守以下铁律：
 
 【绝对基于上下文】
 1. 所有回答只能来自提供的【上下文】，不得使用任何外部知识或常识。
@@ -184,19 +240,34 @@ class AnswerAgent(BaseAgent):
 
 【输出格式】
 - 先直接给出答案（一句话），然后换行后附上"依据："和简要引用。
-- 如果拒答，只需回复拒答语句，不得包含任何其他内容。"""),
-            ("user", """上下文:
+- 如果拒答，只需回复拒答语句，不得包含任何其他内容。"""
+
+        self.base_user_template = """上下文:
 {context}
 
 问题: {question}
 
-回答:""")
-        ])
+回答:"""
+
+    def _build_messages(self, context, question):
+        return [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": self.base_user_template.format(context=context, question=question)}
+        ]
 
     def generate(self, context, question):
-        chain = self.prompt | self.llm | StrOutputParser()
-        result = chain.invoke({"context": context, "question": question})
-        return self.clean_answer(result)
+        messages = self._build_messages(context, question)
+        return self.invoke_llm(messages)
+
+    def regenerate_with_feedback(self, context, question, previous_answer, feedback_reason):
+        messages = self._build_messages(context, question)
+        messages.append({"role": "assistant", "content": previous_answer})
+        feedback_msg = (
+            f"你的上一个回答没有通过事实核查，原因如下：{feedback_reason}\n"
+            f"请严格基于提供的上下文重新回答，纠正上述问题。如果上下文确实无法支持，请明确拒答。"
+        )
+        messages.append({"role": "user", "content": feedback_msg})
+        return self.invoke_llm(messages)
 
 
 # ==================== VerifierAgent ====================
@@ -222,9 +293,8 @@ class VerifierAgent(BaseAgent):
 审查结果 JSON:""")
 
     def verify(self, context, answer, question):
-        chain = self.prompt | self.llm | StrOutputParser()
-        result = chain.invoke({"context": context, "answer": answer, "question": question})
-        result = self.clean_answer(result)
+        messages = self.prompt.format_messages(context=context, answer=answer, question=question)
+        result = self.invoke_llm(messages)
         print(f"[VerifierAgent]: {result.strip()}")
 
         try:
@@ -241,10 +311,10 @@ class VerifierAgent(BaseAgent):
 
 # ==================== OrchestratorAgent ====================
 class OrchestratorAgent:
-    def __init__(self, retriever, decision, reformulator, answer, verifier, max_retries=2):
+    def __init__(self, retriever, decision, query2doc, answer, verifier, max_retries=2):
         self.retriever = retriever
         self.decision = decision
-        self.reformulator = reformulator
+        self.query2doc = query2doc
         self.answer = answer
         self.verifier = verifier
         self.max_retries = max_retries
@@ -257,8 +327,9 @@ class OrchestratorAgent:
                 search_query = query
                 print(f"\n[Orchestrator] 第 {round_idx + 1} 轮检索，原始查询")
             else:
-                search_query = self.reformulator.rewrite(query)
-                print(f"\n[Orchestrator] 第 {round_idx + 1} 轮检索，改写查询")
+                pseudo_doc = self.query2doc.generate(query)
+                search_query = expand_query_with_pseudo_doc(query, pseudo_doc)
+                print(f"\n[Orchestrator] 第 {round_idx + 1} 轮检索，Query2doc 扩展查询")
 
             context = self.retriever.search(search_query)
             if self.decision.check(context, query):
@@ -275,9 +346,11 @@ class OrchestratorAgent:
                 print(f"[Orchestrator] 验证通过 (第 {verify_round + 1} 次)")
                 break
             print(f"[Orchestrator] 验证不通过: {result.reason}")
-            answer = self.answer.generate(
-                context + f"\n\n[修正要求: {result.reason}]",
-                query
+            answer = self.answer.regenerate_with_feedback(
+                context=context,
+                question=query,
+                previous_answer=answer,
+                feedback_reason=result.reason
             )
         else:
             print("[Orchestrator] 二次验证仍不通过，返回最终回答")
@@ -288,22 +361,22 @@ class OrchestratorAgent:
 # --- 5. 实例化各 Agent ---
 retriever_agent = RetrieverAgent(vectorstore, k=3)
 decision_agent = DecisionAgent(model, tokenizer)
-reformulator_agent = ReformulatorAgent(model, tokenizer)
+# reformulator_agent = ReformulatorAgent(model, tokenizer)  # 已弃用
+query2doc_agent = Query2docAgent(model, tokenizer)
 answer_agent = AnswerAgent(model, tokenizer)
 verifier_agent = VerifierAgent(model, tokenizer)
 
 orchestrator = OrchestratorAgent(
     retriever=retriever_agent,
     decision=decision_agent,
-    reformulator=reformulator_agent,
+    query2doc=query2doc_agent,
     answer=answer_agent,
     verifier=verifier_agent,
     max_retries=2
 )
 
 def get_answer(query):
-    answer, _ = orchestrator.run(query)
-    return answer
+    return orchestrator.run(query)
 
 
 if __name__ == "__main__":
