@@ -358,6 +358,87 @@ class OrchestratorAgent:
         return answer, context
 
 
+# ==================== ReActAgent ====================
+class ReActAgent(BaseAgent):
+    def __init__(self, model, tokenizer, retriever, answer):
+        super().__init__(model, tokenizer, max_new_tokens=512, temperature=0.1, do_sample=False)
+        self.retriever = retriever
+        self.answer = answer
+        self.max_iterations = 5
+
+        self.system_prompt = """你是一个基于《学生手册》知识库的问答助手。你需要通过"推理-行动"循环逐步收集信息来回答问题。
+
+可用工具：
+- Search[查询词]：在文档库中搜索相关信息。你应该从不同角度多次搜索以获取完整信息。
+- Finish：当你认为已收集到足够信息时使用此行动。
+
+严格按以下格式输出：
+Thought: <你当前的分析和思考>
+Action: Search[<具体的查询词>]
+
+例如：
+当认为需要搜索相关信息时：
+Thought: <你的分析和思考>
+Action: Search[<具体的查询词>]
+
+当认为信息足够时：
+Thought: <总结你收集到的信息>
+Action: Finish
+
+搜寻结束后，基于收集到的所有上下文给出最终答案。"""
+
+    def _parse_react_output(self, text):
+        thought_match = re.search(r'Thought:\s*(.*?)(?=\n*(?:Action:|$))', text, re.DOTALL | re.IGNORECASE)
+        action_search = re.search(r'Action:\s*Search\s*\[\s*(.*?)\s*\]', text, re.IGNORECASE)
+        action_finish = re.search(r'Action:\s*Finish', text, re.IGNORECASE)
+        return {
+            "thought": thought_match.group(1).strip() if thought_match else "",
+            "action_search": action_search,
+            "action_finish": action_finish,
+        }
+
+    def run(self, query):
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": query}
+        ]
+
+        context_parts = []
+
+        for iteration in range(1, self.max_iterations + 1):
+            print(f"\n[ReActAgent] 第 {iteration} 轮推理")
+            response = self.invoke_llm(messages)
+            print(f"[ReActAgent] LLM 输出:\n{response}")
+
+            parsed = self._parse_react_output(response)
+
+            messages.append({"role": "assistant", "content": response})
+
+            if parsed["action_search"]:
+                search_query = parsed["action_search"].group(1).strip()
+                print(f"[ReActAgent] 执行搜索: {search_query}")
+                observation = self.retriever.search(search_query)
+                context_parts.append(observation)
+                messages.append({"role": "user", "content": f"Observation:\n{observation}"})
+            elif parsed["action_finish"]:
+                print(f"[ReActAgent] LLM 决定 Finish，循环结束")
+                break
+            else:
+                print(f"[ReActAgent] 无法解析行动，循环结束")
+                break
+        else:
+            print(f"[ReActAgent] 达到最大迭代次数 {self.max_iterations}")
+
+        accumulated_context = "\n\n".join(context_parts) if context_parts else ""
+        if accumulated_context:
+            print(f"[ReActAgent] 精炼最终答案...")
+            answer = self.answer.generate(accumulated_context, query)
+        else:
+            answer = "抱歉，我无法根据提供的上下文找到相关信息来回答此问题。"
+
+        return answer, accumulated_context
+
+
 # --- 5. 实例化各 Agent ---
 retriever_agent = RetrieverAgent(vectorstore, k=3)
 decision_agent = DecisionAgent(model, tokenizer)
@@ -366,14 +447,19 @@ query2doc_agent = Query2docAgent(model, tokenizer)
 answer_agent = AnswerAgent(model, tokenizer)
 verifier_agent = VerifierAgent(model, tokenizer)
 
-orchestrator = OrchestratorAgent(
-    retriever=retriever_agent,
-    decision=decision_agent,
-    query2doc=query2doc_agent,
-    answer=answer_agent,
-    verifier=verifier_agent,
-    max_retries=2
-)
+USE_REACT = True
+
+if USE_REACT:
+    orchestrator = ReActAgent(model, tokenizer, retriever=retriever_agent, answer=answer_agent)
+else:
+    orchestrator = OrchestratorAgent(
+        retriever=retriever_agent,
+        decision=decision_agent,
+        query2doc=query2doc_agent,
+        answer=answer_agent,
+        verifier=verifier_agent,
+        max_retries=2
+    )
 
 def get_answer(query):
     return orchestrator.run(query)
