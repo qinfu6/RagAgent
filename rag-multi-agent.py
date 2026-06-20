@@ -273,7 +273,7 @@ class AnswerAgent(BaseAgent):
 # ==================== VerifierAgent ====================
 class VerifierAgent(BaseAgent):
     def __init__(self, model, tokenizer):
-        super().__init__(model, tokenizer, max_new_tokens=128, temperature=0, do_sample=False)
+        super().__init__(model, tokenizer, max_new_tokens=256, temperature=0, do_sample=False)
         self.prompt = ChatPromptTemplate.from_template("""你是学生手册问答的严格审查员。请验证以下回答是否完全忠于提供的上下文。
 
 验证标准：
@@ -297,16 +297,30 @@ class VerifierAgent(BaseAgent):
         result = self.invoke_llm(messages)
         print(f"[VerifierAgent]: {result.strip()}")
 
+        # 尝试解析 JSON
+        stripped = result.strip()
         try:
-            data = json.loads(result.strip())
+            data = json.loads(stripped)
             return VerifiedResult(valid=data.get("valid", False), reason=data.get("reason", "未知错误"))
         except json.JSONDecodeError:
-            valid = re.search(r'"valid"\s*:\s*(true|false)', result, re.IGNORECASE)
-            reason = re.search(r'"reason"\s*:\s*"([^"]*)"', result)
-            return VerifiedResult(
-                valid=(valid and valid.group(1).lower() == "true"),
-                reason=reason.group(1) if reason else "无法解析验证结果"
-            )
+            pass
+
+        # 截断修复：reason 字符串中途截断时补全 JSON
+        fixed = re.sub(r'"[^"]*$', '"}', stripped)
+        try:
+            data = json.loads(fixed)
+            print("[VerifierAgent] JSON 已自动修补（可能被截断）")
+            return VerifiedResult(valid=data.get("valid", False), reason=data.get("reason", "解析截断，部分内容丢失"))
+        except json.JSONDecodeError:
+            pass
+
+        # 最后兜底：regex 提取，标记低可信度
+        valid = re.search(r'"valid"\s*:\s*(true|false)', result, re.IGNORECASE)
+        reason = re.search(r'"reason"\s*:\s*"([^"]*)"', result)
+        return VerifiedResult(
+            valid=(valid and valid.group(1).lower() == "true"),
+            reason=(reason.group(1) if reason else f"[解析失败] 原始输出: {stripped[:60]}...")
+        )
 
 
 # ==================== OrchestratorAgent ====================
@@ -439,6 +453,113 @@ Action: Finish
         return answer, accumulated_context
 
 
+# ==================== ReActOrchestratorAgent (ReAct + Multi-Agent 管道) ====================
+class ReActOrchestratorAgent(BaseAgent):
+    def __init__(self, model, tokenizer, retriever, decision, query2doc, answer, verifier):
+        super().__init__(model, tokenizer, max_new_tokens=512, temperature=0.1, do_sample=False)
+        self.retriever = retriever
+        self.decision = decision
+        self.query2doc = query2doc
+        self.answer = answer
+        self.verifier = verifier
+        self.max_iterations = 5
+
+        self.system_prompt = """你是一个基于《学生手册》知识库的问答助手。你需要通过"推理-行动"循环逐步收集信息来回答问题。
+
+可用工具：
+- Search[查询词]：在文档库中搜索相关信息。你应该从不同角度多次搜索以获取完整信息。
+- Finish：当你认为已收集到足够信息时使用此行动。
+
+严格按以下格式输出：
+
+Thought: <你当前的分析和思考>
+Action: Search[<具体的查询词>]
+
+当认为信息足够时：
+
+Thought: <总结你收集到的信息>
+Action: Finish
+
+搜寻结束后，基于收集到的所有上下文给出最终答案。"""
+
+    def _parse_react_output(self, text):
+        thought_match = re.search(r'Thought:\s*(.*?)(?=\n*(?:Action:|$))', text, re.DOTALL | re.IGNORECASE)
+        action_search = re.search(r'Action:\s*Search\s*\[\s*(.*?)\s*\]', text, re.IGNORECASE)
+        action_finish = re.search(r'Action:\s*Finish', text, re.IGNORECASE)
+        return {
+            "thought": thought_match.group(1).strip() if thought_match else "",
+            "action_search": action_search,
+            "action_finish": action_finish,
+        }
+
+    def run(self, query):
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": query}
+        ]
+
+        context_parts = []
+
+        # ── Phase 1: ReAct 自主搜索（含 DecisionAgent 智能提示） ──
+        for iteration in range(1, self.max_iterations + 1):
+            print(f"\n[ReActOrchestrator] 第 {iteration} 轮推理")
+            response = self.invoke_llm(messages)
+            print(f"[ReActOrchestrator] LLM 输出:\n{response}")
+
+            parsed = self._parse_react_output(response)
+            messages.append({"role": "assistant", "content": response})
+
+            if parsed["action_search"]:
+                search_query = parsed["action_search"].group(1).strip()
+                # Query2doc：生成伪文档扩展查询，提升检索精度
+                pseudo_doc = self.query2doc.generate(search_query)
+                expanded_query = expand_query_with_pseudo_doc(search_query, pseudo_doc)
+                print(f"[ReActOrchestrator] Query2doc 扩展: {search_query} → {expanded_query[:100]}...")
+                print(f"[ReActOrchestrator] 执行搜索: {expanded_query}")
+                observation = self.retriever.search(expanded_query)
+                context_parts.append(observation)
+
+                # DecisionAgent 静默检查：累积上下文是否已足够
+                accumulated = "\n\n".join(context_parts)
+                if self.decision.check(accumulated, query):
+                    observation += "\n\n[系统提示: 当前已收集到足够信息，可以考虑 Finish]"
+
+                messages.append({"role": "user", "content": f"Observation:\n{observation}"})
+            elif parsed["action_finish"]:
+                print(f"[ReActOrchestrator] LLM 决定 Finish，循环结束")
+                break
+            else:
+                print(f"[ReActOrchestrator] 无法解析行动，循环结束")
+                break
+        else:
+            print(f"[ReActOrchestrator] 达到最大迭代次数 {self.max_iterations}")
+
+        # ── Phase 2: AnswerAgent 精炼 + VerifierAgent 验证修正 ──
+        accumulated_context = "\n\n".join(context_parts) if context_parts else ""
+        if accumulated_context:
+            print(f"[ReActOrchestrator] 精炼最终答案并验证...")
+            answer = self.answer.generate(accumulated_context, query)
+
+            for verify_round in range(2):
+                result = self.verifier.verify(accumulated_context, answer, query)
+                if result.valid:
+                    print(f"[ReActOrchestrator] 验证通过 (第 {verify_round + 1} 次)")
+                    break
+                print(f"[ReActOrchestrator] 验证不通过: {result.reason}")
+                answer = self.answer.regenerate_with_feedback(
+                    context=accumulated_context,
+                    question=query,
+                    previous_answer=answer,
+                    feedback_reason=result.reason
+                )
+            else:
+                print("[ReActOrchestrator] 二次验证仍不通过，返回最终回答")
+        else:
+            answer = "抱歉，我无法根据提供的上下文找到相关信息来回答此问题。"
+
+        return answer, accumulated_context
+
+
 # --- 5. 实例化各 Agent ---
 retriever_agent = RetrieverAgent(vectorstore, k=3)
 decision_agent = DecisionAgent(model, tokenizer)
@@ -447,11 +568,9 @@ query2doc_agent = Query2docAgent(model, tokenizer)
 answer_agent = AnswerAgent(model, tokenizer)
 verifier_agent = VerifierAgent(model, tokenizer)
 
-USE_REACT = True
+ORCHESTRATOR_MODE = "react_orch"  # "orch" | "react" | "react_orch"
 
-if USE_REACT:
-    orchestrator = ReActAgent(model, tokenizer, retriever=retriever_agent, answer=answer_agent)
-else:
+if ORCHESTRATOR_MODE == "orch":
     orchestrator = OrchestratorAgent(
         retriever=retriever_agent,
         decision=decision_agent,
@@ -459,6 +578,17 @@ else:
         answer=answer_agent,
         verifier=verifier_agent,
         max_retries=2
+    )
+elif ORCHESTRATOR_MODE == "react":
+    orchestrator = ReActAgent(model, tokenizer, retriever=retriever_agent, answer=answer_agent)
+elif ORCHESTRATOR_MODE == "react_orch":
+    orchestrator = ReActOrchestratorAgent(
+        model, tokenizer,
+        retriever=retriever_agent,
+        decision=decision_agent,
+        query2doc=query2doc_agent,
+        answer=answer_agent,
+        verifier=verifier_agent
     )
 
 def get_answer(query):
