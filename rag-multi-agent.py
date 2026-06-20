@@ -9,7 +9,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
 from langchain_community.document_loaders import TextLoader
 
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings, HuggingFacePipeline # 正确方式：从独立包导入
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
@@ -36,7 +36,7 @@ embeddings = HuggingFaceEmbeddings(
 )
 
 # FAISS 持久化：如果向量库已存在则直接加载, 否则创建并保存
-persist_dir = "./faiss_index/agent"
+persist_dir = "./faiss_index/multiagent"
 if os.path.exists(persist_dir) and os.listdir(persist_dir):
     vectorstore = FAISS.load_local(
         persist_dir, embeddings, allow_dangerous_deserialization=True
@@ -44,19 +44,34 @@ if os.path.exists(persist_dir) and os.listdir(persist_dir):
     print("已加载已有向量库")
 else:
     os.makedirs(persist_dir, exist_ok=True)
-    data_dir = "./doc/3"
-    docs = load_markdown_files(data_dir)
-    print(f"已加载 {len(docs)} 个文档")
+    data_dir = "./doc/5"
+    print(f"正在读取 {data_dir} 目录下的 Markdown 文件并进行两阶段切分...")
 
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=100,
-        length_function=len,
-        is_separator_regex=False,
+    headers_to_split_on = [
+        ("#", "Header_1"),
+        ("##", "Header_2"),
+        ("###", "Header_3"),
+    ]
+    markdown_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
+    child_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=400,
+        chunk_overlap=80,
+        length_function=len
     )
-    chunks = text_splitter.split_documents(docs)
 
-    vectorstore = FAISS.from_documents(chunks, embeddings)
+    final_chunks = []
+    for filepath in sorted(Path(data_dir).rglob("*.md")):
+        file_name = filepath.name
+        with open(filepath, "r", encoding="utf-8") as f:
+            md_content = f.read()
+        macro_chunks = markdown_splitter.split_text(md_content)
+        for m_chunk in macro_chunks:
+            m_chunk.metadata["source"] = file_name
+            micro_chunks = child_splitter.split_documents([m_chunk])
+            final_chunks.extend(micro_chunks)
+
+    print(f"切分完成：共生成带有丰富结构元数据的小块 {len(final_chunks)} 个")
+    vectorstore = FAISS.from_documents(final_chunks, embeddings)
     vectorstore.save_local(persist_dir)
     print("向量库已创建并保存")
 
@@ -85,6 +100,7 @@ class BaseAgent:
             model=model,
             tokenizer=tokenizer,
             max_new_tokens=max_new_tokens,
+            max_length=None,  # 消除与 max_new_tokens 的冲突警告
             do_sample=do_sample,
             temperature=temperature,
             return_full_text=False
@@ -135,10 +151,19 @@ class RetrieverAgent:
             fetch_k=self.fetch_k,
             lambda_mult=self.lambda_mult
         )
-        context = "\n\n".join(doc.page_content for doc in docs)
-        print("======== 检索到的上下文 ========")
+        blocks = []
+        for doc in docs:
+            h1 = doc.metadata.get("Header_1", "")
+            h2 = doc.metadata.get("Header_2", "")
+            h3 = doc.metadata.get("Header_3", "")
+            source = doc.metadata.get("source", "")
+            header_path = " -> ".join([h for h in [h1, h2, h3] if h])
+            meta = f"【来源: {source} | 章节: {header_path}】" if header_path else f"【来源: {source}】"
+            blocks.append(f"{meta}\n{doc.page_content}")
+        context = "\n\n---\n\n".join(blocks)
+        print("======== 检索到的上下文（含元数据） ========")
         print(context)
-        print("================================\n")
+        print("==========================================\n")
         return context
 
 
@@ -263,8 +288,8 @@ class AnswerAgent(BaseAgent):
         messages = self._build_messages(context, question)
         messages.append({"role": "assistant", "content": previous_answer})
         feedback_msg = (
-            f"你的上一个回答没有通过事实核查，原因如下：{feedback_reason}\n"
-            f"请严格基于提供的上下文重新回答，纠正上述问题。如果上下文确实无法支持，请明确拒答。"
+            f"你的上一个回答不够完整，原因如下：{feedback_reason}\n"
+            f"请基于提供的上下文补充上述遗漏信息后重新回答。只要上下文中有相关信息，就一定不要拒绝回答。如果上下文确实完全无法支持，再明确拒答。"
         )
         messages.append({"role": "user", "content": feedback_msg})
         return self.invoke_llm(messages)
@@ -499,6 +524,7 @@ Action: Finish
         ]
 
         context_parts = []
+        last_reasoning = None
 
         # ── Phase 1: ReAct 自主搜索（含 DecisionAgent 智能提示） ──
         for iteration in range(1, self.max_iterations + 1):
@@ -527,6 +553,7 @@ Action: Finish
                 messages.append({"role": "user", "content": f"Observation:\n{observation}"})
             elif parsed["action_finish"]:
                 print(f"[ReActOrchestrator] LLM 决定 Finish，循环结束")
+                last_reasoning = parsed["thought"]
                 break
             else:
                 print(f"[ReActOrchestrator] 无法解析行动，循环结束")
@@ -536,6 +563,8 @@ Action: Finish
 
         # ── Phase 2: AnswerAgent 精炼 + VerifierAgent 验证修正 ──
         accumulated_context = "\n\n".join(context_parts) if context_parts else ""
+        if last_reasoning:
+            accumulated_context += f"\n\n[推理摘要]\n{last_reasoning}"
         if accumulated_context:
             print(f"[ReActOrchestrator] 精炼最终答案并验证...")
             answer = self.answer.generate(accumulated_context, query)
