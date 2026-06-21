@@ -298,7 +298,7 @@ class AnswerAgent(BaseAgent):
 # ==================== VerifierAgent ====================
 class VerifierAgent(BaseAgent):
     def __init__(self, model, tokenizer):
-        super().__init__(model, tokenizer, max_new_tokens=256, temperature=0, do_sample=False)
+        super().__init__(model, tokenizer, max_new_tokens=512, temperature=0, do_sample=False)  # VerifierAgent
         self.prompt = ChatPromptTemplate.from_template("""你是学生手册问答的严格审查员。请验证以下回答是否完全忠于提供的上下文。
 
 验证标准：
@@ -400,7 +400,7 @@ class OrchestratorAgent:
 # ==================== ReActAgent ====================
 class ReActAgent(BaseAgent):
     def __init__(self, model, tokenizer, retriever, answer):
-        super().__init__(model, tokenizer, max_new_tokens=512, temperature=0.1, do_sample=False)
+        super().__init__(model, tokenizer, max_new_tokens=1024, temperature=0.1, do_sample=False)
         self.retriever = retriever
         self.answer = answer
         self.max_iterations = 5
@@ -481,7 +481,7 @@ Action: Finish
 # ==================== ReActOrchestratorAgent (ReAct + Multi-Agent 管道) ====================
 class ReActOrchestratorAgent(BaseAgent):
     def __init__(self, model, tokenizer, retriever, decision, query2doc, answer, verifier):
-        super().__init__(model, tokenizer, max_new_tokens=512, temperature=0.1, do_sample=False)
+        super().__init__(model, tokenizer, max_new_tokens=1024, temperature=0.1, do_sample=False)
         self.retriever = retriever
         self.decision = decision
         self.query2doc = query2doc

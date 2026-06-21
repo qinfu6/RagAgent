@@ -8,7 +8,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 from langchain_community.document_loaders import UnstructuredMarkdownLoader
 from langchain_community.document_loaders import TextLoader
 
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings, HuggingFacePipeline # 正确方式：从独立包导入
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
@@ -35,7 +35,7 @@ embeddings = HuggingFaceEmbeddings(
 )
 
 # FAISS 持久化：如果向量库已存在则直接加载, 否则创建并保存
-persist_dir = "./faiss_index/agent"
+persist_dir = "./faiss_index/multiagent"
 if os.path.exists(persist_dir) and os.listdir(persist_dir):
     vectorstore = FAISS.load_local(
         persist_dir, embeddings, allow_dangerous_deserialization=True
@@ -43,19 +43,34 @@ if os.path.exists(persist_dir) and os.listdir(persist_dir):
     print("已加载已有向量库")
 else:
     os.makedirs(persist_dir, exist_ok=True)
-    data_dir = "./doc/3"
-    docs = load_markdown_files(data_dir)
-    print(f"已加载 {len(docs)} 个文档")
+    data_dir = "./doc/5"
+    print(f"正在读取 {data_dir} 目录下的 Markdown 文件并进行两阶段切分...")
 
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=100,
-        length_function=len,
-        is_separator_regex=False,
+    headers_to_split_on = [
+        ("#", "Header_1"),
+        ("##", "Header_2"),
+        ("###", "Header_3"),
+    ]
+    markdown_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
+    child_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=400,
+        chunk_overlap=80,
+        length_function=len
     )
-    chunks = text_splitter.split_documents(docs)
 
-    vectorstore = FAISS.from_documents(chunks, embeddings)
+    final_chunks = []
+    for filepath in sorted(Path(data_dir).rglob("*.md")):
+        file_name = filepath.name
+        with open(filepath, "r", encoding="utf-8") as f:
+            md_content = f.read()
+        macro_chunks = markdown_splitter.split_text(md_content)
+        for m_chunk in macro_chunks:
+            m_chunk.metadata["source"] = file_name
+            micro_chunks = child_splitter.split_documents([m_chunk])
+            final_chunks.extend(micro_chunks)
+
+    print(f"切分完成：共生成带有丰富结构元数据的小块 {len(final_chunks)} 个")
+    vectorstore = FAISS.from_documents(final_chunks, embeddings)
     vectorstore.save_local(persist_dir)
     print("向量库已创建并保存")
 
@@ -152,10 +167,19 @@ query2doc_prompt = ChatPromptTemplate.from_template(query2doc_template)
 
 # 将检索步骤集成到链中
 def format_docs(docs):
-    context_str = "\n\n".join(doc.page_content for doc in docs)
-    print("======== 检索到的上下文 ========")
+    blocks = []
+    for doc in docs:
+        h1 = doc.metadata.get("Header_1", "")
+        h2 = doc.metadata.get("Header_2", "")
+        h3 = doc.metadata.get("Header_3", "")
+        source = doc.metadata.get("source", "")
+        header_path = " -> ".join([h for h in [h1, h2, h3] if h])
+        meta = f"【来源: {source} | 章节: {header_path}】" if header_path else f"【来源: {source}】"
+        blocks.append(f"{meta}\n{doc.page_content}")
+    context_str = "\n\n---\n\n".join(blocks)
+    print("======== 检索到的上下文（含元数据） ========")
     print(context_str)
-    print("================================\n")
+    print("==========================================\n")
     return context_str
 
 retriever = vectorstore.as_retriever()
